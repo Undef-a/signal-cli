@@ -199,24 +199,6 @@ public class Manager implements Closeable {
         return account.getDeviceId();
     }
 
-    private String getMessageCachePath() {
-        return pathConfig.getDataPath() + "/" + account.getUsername() + ".d/msg-cache";
-    }
-
-    private String getMessageCachePath(String sender) {
-        if (sender == null || sender.isEmpty()) {
-            return getMessageCachePath();
-        }
-
-        return getMessageCachePath() + "/" + sender.replace("/", "_");
-    }
-
-    private File getMessageCacheFile(String sender, long now, long timestamp) throws IOException {
-        String cachePath = getMessageCachePath(sender);
-        IOUtils.createPrivateDirectories(cachePath);
-        return new File(cachePath + "/" + now + "_" + timestamp);
-    }
-
     public static Manager init(String username, String settingsPath, SignalServiceConfiguration serviceConfiguration, String userAgent) throws IOException {
         PathConfig pathConfig = PathConfig.createDefault(settingsPath);
 
@@ -1329,28 +1311,6 @@ public class Manager implements Closeable {
         return actions;
     }
 
-    private void retryFailedReceivedMessages(ReceiveMessageHandler handler, boolean ignoreAttachments) {
-        final File cachePath = new File(getMessageCachePath());
-        if (!cachePath.exists()) {
-            return;
-        }
-        for (final File dir : Objects.requireNonNull(cachePath.listFiles())) {
-            if (!dir.isDirectory()) {
-                retryFailedReceivedMessage(handler, ignoreAttachments, dir);
-                continue;
-            }
-
-            for (final File fileEntry : Objects.requireNonNull(dir.listFiles())) {
-                if (!fileEntry.isFile()) {
-                    continue;
-                }
-                retryFailedReceivedMessage(handler, ignoreAttachments, fileEntry);
-            }
-            // Try to delete directory if empty
-            dir.delete();
-        }
-    }
-
     private void retryFailedReceivedMessage(final ReceiveMessageHandler handler, final boolean ignoreAttachments, final File fileEntry) {
         SignalServiceEnvelope envelope;
         try {
@@ -1396,7 +1356,7 @@ public class Manager implements Closeable {
     }
 
     public void receiveMessages(long timeout, TimeUnit unit, boolean returnOnTimeout, boolean ignoreAttachments, ReceiveMessageHandler handler) throws IOException {
-        retryFailedReceivedMessages(handler, ignoreAttachments);
+        //retryFailedReceivedMessages(handler, ignoreAttachments); // TODO: re-enable
         final SignalServiceMessageReceiver messageReceiver = getMessageReceiver();
 
         Set<HandleAction> queuedActions = null;
@@ -1413,16 +1373,7 @@ public class Manager implements Closeable {
             Exception exception = null;
             final long now = new Date().getTime();
             try {
-                Optional<SignalServiceEnvelope> result = messagePipe.readOrEmpty(timeout, unit, envelope1 -> {
-                    // store message on disk, before acknowledging receipt to the server
-                    try {
-                        String source = envelope1.getSourceE164().isPresent() ? envelope1.getSourceE164().get() : "";
-                        File cacheFile = getMessageCacheFile(source, now, envelope1.getTimestamp());
-                        Utils.storeEnvelope(envelope1, cacheFile);
-                    } catch (IOException e) {
-                        System.err.println("Failed to store encrypted message in disk cache, ignoring: " + e.getMessage());
-                    }
-                });
+                Optional<SignalServiceEnvelope> result = messagePipe.readOrEmpty(timeout, unit, envelope1 -> {});
                 if (result.isPresent()) {
                     envelope = result.get();
                 } else {
@@ -1484,18 +1435,6 @@ public class Manager implements Closeable {
             account.save();
             if (!isMessageBlocked(envelope, content)) {
                 handler.handleMessage(envelope, content, exception);
-            }
-            if (!(exception instanceof org.whispersystems.libsignal.UntrustedIdentityException)) {
-                File cacheFile = null;
-                try {
-                    String source = envelope.getSourceE164().isPresent() ? envelope.getSourceE164().get() : "";
-                    cacheFile = getMessageCacheFile(source, now, envelope.getTimestamp());
-                    Files.delete(cacheFile.toPath());
-                    // Try to delete directory if empty
-                    new File(getMessageCachePath()).delete();
-                } catch (IOException e) {
-                    System.err.println("Failed to delete cached message file “" + cacheFile + "”: " + e.getMessage());
-                }
             }
         }
     }
