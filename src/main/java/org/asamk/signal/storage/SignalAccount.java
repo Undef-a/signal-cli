@@ -44,7 +44,7 @@ public class SignalAccount implements Closeable {
 
     private final ObjectMapper jsonProcessor = new ObjectMapper();
     final static String PURPLE_SIGNALDATA_KEY = "signaldata";
-    private final long connection;
+    private final long account;
     private String username;
     private UUID uuid;
     private int deviceId = SignalServiceAddress.DEFAULT_DEVICE_ID;
@@ -64,8 +64,8 @@ public class SignalAccount implements Closeable {
     private RecipientStore recipientStore;
     private ProfileStore profileStore;
 
-    private SignalAccount(final long connection) {
-        this.connection = connection;
+    private SignalAccount(final long account) {
+        this.account = account;
         jsonProcessor.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.NONE); // disable autodetect
         jsonProcessor.disable(SerializationFeature.INDENT_OUTPUT); // for pretty print, you can disable it.
         jsonProcessor.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
@@ -74,15 +74,13 @@ public class SignalAccount implements Closeable {
     }
 
     public static SignalAccount load(String dataPath, String username) throws IOException {
-        final long connection = PurpleSignal.lookupUsername(username);
-        SignalAccount account = new SignalAccount(connection);
+        SignalAccount account = new SignalAccount(PurpleSignal.lookupAccountByUsername(username));
         account.load();
         return account;
     }
 
     public static SignalAccount create(String dataPath, String username, IdentityKeyPair identityKey, int registrationId, ProfileKey profileKey) throws IOException {
-        final long connection = PurpleSignal.lookupUsername(username);
-        SignalAccount account = new SignalAccount(connection);
+        SignalAccount account = new SignalAccount(PurpleSignal.lookupAccountByUsername(username));
 
         account.username = username;
         account.profileKey = profileKey;
@@ -97,8 +95,7 @@ public class SignalAccount implements Closeable {
     }
 
     public static SignalAccount createLinkedAccount(String dataPath, String username, UUID uuid, String password, int deviceId, IdentityKeyPair identityKey, int registrationId, String signalingKey, ProfileKey profileKey) throws IOException {
-        final long connection = PurpleSignal.lookupUsername(username);
-        SignalAccount account = new SignalAccount(connection);
+        SignalAccount account = new SignalAccount(PurpleSignal.lookupAccountByUsername(username));
 
         account.username = username;
         account.uuid = uuid;
@@ -121,8 +118,8 @@ public class SignalAccount implements Closeable {
         return dataPath + "/" + username;
     }
 
-    public static boolean userExists(final long connection) {
-        return !PurpleSignal.getSettingsStringNatively(connection, PURPLE_SIGNALDATA_KEY, "").equals("");
+    public static boolean userExists(final long account) {
+        return !PurpleSignal.getSettingsStringNatively(account, PURPLE_SIGNALDATA_KEY, "").equals("");
     }
 
     public static boolean userExists(String dataPath, String username) {
@@ -130,7 +127,7 @@ public class SignalAccount implements Closeable {
             return false;
         }
         try {
-            return userExists(PurpleSignal.lookupUsername(username));
+            return userExists(PurpleSignal.lookupAccountByUsername(username));
         } catch (IOException e) {
             return false;
         }
@@ -138,7 +135,7 @@ public class SignalAccount implements Closeable {
 
     private void load() throws IOException {
         JsonNode rootNode;
-        String json = PurpleSignal.getSettingsStringNatively(this.connection, PURPLE_SIGNALDATA_KEY, "");
+        String json = PurpleSignal.getSettingsStringNatively(this.account, PURPLE_SIGNALDATA_KEY, "");
         rootNode = jsonProcessor.readTree(json);
 
         JsonNode uuidNode = rootNode.get("uuid");
@@ -283,7 +280,7 @@ public class SignalAccount implements Closeable {
         try {
             // Write to memory first to prevent corrupting the file in case of serialization errors
             String json = jsonProcessor.writeValueAsString(rootNode);
-            PurpleSignal.setSettingsStringNatively(this.connection, PURPLE_SIGNALDATA_KEY, json);
+            PurpleSignal.setSettingsStringNatively(this.account, PURPLE_SIGNALDATA_KEY, json);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage());
         }
